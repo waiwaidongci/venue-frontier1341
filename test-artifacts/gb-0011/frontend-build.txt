@@ -1,0 +1,5 @@
+tsc --noEmit: ok
+dist/index.html                   0.37 kB │ gzip:  0.30 kB
+dist/assets/index-ClzM8ryq.css   26.55 kB │ gzip:  5.79 kB
+dist/assets/index-BCl5OQsi.js   187.66 kB │ gzip: 60.26 kB
+✓ built in 789ms

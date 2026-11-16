@@ -27,10 +27,22 @@ def seed():
                 db.commit()
             runname=period+' · 双投入双产出CCR'
             if not db.scalar(select(EfficiencyRun).where(EfficiencyRun.name==runname)):
-                run=EfficiencyRun(name=runname,benchmark_id=benchmark.id,inputs=['staff_hours','energy_cost'],outputs=['visits','programs'],sensitivity_count=3,status='queued');db.add(run);db.commit();execute_run(db,run.id)
+                run=EfficiencyRun(name=runname,benchmark_id=benchmark.id,inputs=['staff_hours','energy_cost'],outputs=['visits','programs'],sensitivity_count=3,status='queued',generation_count=1);db.add(run);db.commit()
+                from src.schemas.run import RunInput
+                from src.services.generation_service import create_generation,execute_generation
+                gen=create_generation(db,run.id,RunInput(name=run.name,benchmark_id=run.benchmark_id,inputs=run.inputs,outputs=run.outputs,sensitivity_count=run.sensitivity_count),actor='seed')
+                execute_generation(db,gen.id)
+        # Generation publish writes through SQL; drop the identity map before reading it.
+        db.expire_all()
         latest=db.scalar(select(EfficiencyRun).order_by(EfficiencyRun.id.desc()))
         if latest and latest.status=='completed' and not db.scalar(select(ImprovementCase).where(ImprovementCase.title=='水岸青年馆 · 开放时段与照明排程复核')):
             target=next(r for r in latest.result['baseline'] if r['venue_code']=='QY-05')
-            db.add(ImprovementCase(title='水岸青年馆 · 开放时段与照明排程复核',run_id=latest.id,observation_id=target['observation_id'],hypothesis='先复核同期开馆工时与照明排程的统计边界，再用活动日观察验证投入缩减假设。',verification='由机构联络员核对季度口径，安排两周现场观察；不作为个人绩效、自动拨款或直接预算削减依据。',status='approved',approved_by='admin@qiyuan.demo'))
+            from src.schemas.case import CaseInput
+            from src.services.case_service import create_case
+            row=create_case(db,CaseInput(title='水岸青年馆 · 开放时段与照明排程复核',run_id=latest.id,
+                generation_id=latest.published_generation_id,observation_id=target['observation_id'],
+                hypothesis='先复核同期开馆工时与照明排程的统计边界，再用活动日观察验证投入缩减假设。',
+                verification='由机构联络员核对季度口径，安排两周现场观察；不作为个人绩效、自动拨款或直接预算削减依据。'))
+            row.status='approved';row.approved_by='admin@qiyuan.demo'
         db.commit();print(json.dumps({m.__tablename__:db.scalar(select(func.count()).select_from(m)) for m in (User,BenchmarkSet,Venue,PeriodObservation,EfficiencyRun,ImprovementCase)},ensure_ascii=False))
 if __name__=='__main__':seed()

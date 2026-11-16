@@ -57,21 +57,44 @@ min θ
 
 求解采用SciPy `linprog(method='highs')`；0最优、2不可行、3无界等状态分别保存，不给失败情景填假θ。正投入和θ非负的有效模型不可能向负无穷无界；仍显式处理求解器返回状态。固定θ的第二阶段失败也不会冒充完成。实际状态码口径参照[SciPy linprog官方文档](https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.linprog.html)。
 
+## 多代回算：晚到旧任务不改写当前结果
+
+规则升级后，历史研究按“代”重算。每次回算建立一个新的`RunGeneration`，旧已发布代在整代通过逐馆核对并发布前继续对外提供`EfficiencyRun.result`；任何分片失败都不发布，因此不会出现半成品覆盖。
+
+| 代状态 | 含义 | 对外结果 |
+|---|---|---|
+| queued / running | 等待或正在计算 | 仍是上一已发布代 |
+| ready | 全部分片完成，逐馆核对全部通过 | 仍是上一已发布代，等待发布或自动发布 |
+| published | 已整代原子发布 | 本代 |
+| failed | 至少一个分片失败或核对未通过 | 仍是上一已发布代；`failure_scope`列出馆与阶段 |
+| superseded | 创建了更新代或更晚代已发布 | 永不发布 |
+
+- 分片粒度是“馆×阶段”：每馆基线θ、每馆敏感性情景各自一条`GenerationPart`，带输入指纹与尝试序号。中断后重新执行只补未完成或失败的分片；已成功分片不重算。
+- `retry`只接受failed/superseded且不存在更新代的代；补算会重置失败分片，并保留其余已完成分片。
+- 发布在同一事务内锁定研究行，重新检查代序：只有最新代且状态为ready才能发布；更早代、重放同一代、乱序完成都转为superseded或幂等返回，不覆盖已发布结果。已完成分片的认领与完成均以尝试序号做条件更新，旧worker的晚到写入被忽略。
+- 逐馆核对：每馆重新列举θ（按冻结样本独立复算）、求解状态与θ/Δθ有限性、参照机构属于样本、非最优状态不得填θ、基线/敏感性输入指纹与冻结快照及标杆选择一致、情景齐全。`verification.venues`记录每馆检查项；失败项进入`failure_scope`。
+- 页面“参照与敏感性”展示各代状态、分片进度、核对结果、失败范围与两代逐馆θ差异；差异只表示参照集与样本变化，不代表机构实际改善。
+- 升级前的已完成研究在启动时登记为第1代已发布快照（不重算），首次推广回算自然成为第2代。
+
+### 改进假设引用固定代
+
+新建改进假设时必须引用一个已发布代（默认当前代），创建时冻结θ、松弛、参照λ、期间与样本指纹到`source_evidence`。新一代发布后旧假设仍显示原代依据并标记“依据代已被取代”，不会静默改写。分析员可对该假设主动迁移到更晚的已发布代，`migration_history`保留每次迁移的前后θ、指纹与时间，CSV导出同时给出`source_generation_no`、`current_generation_no`、`run_fingerprint`（依据代指纹）与`migration_count`。
+
 ## 失败态、边界与复算
 
 - 零/负投入、负产出、非有限值、重复观察、空参照、样本不足、非法字段均拒绝。全零产出目标在数学上θ=0且明确标记，不解释为实际可将所有投入归零。
 - 目标有某项正产出而移除后的参照集无法供给时，情景可为infeasible；基线自含一般保证可行。
 - DEA分数对异常参照和变量选择敏感，不自动识别机构使命差异、服务质量或投入可控性。高相对效率不等于绝对最优；低分不直接构成削减资源的依据。
 - 规范JSON SHA256包含全部稳定排序机构观察、机构标识、全部数值、参照集/季度、输入输出字段、敏感性数量、基线自含与统一移除规则、算法版本。没有随机计算；HiGHS返回一组最优解，不声称参照权重唯一。
-- 测试含闭式三DMU：[x,y]=[1,1],[2,1],[1,2]，基线θ=[.5,.25,1]；统一移除C后θ=[1,.5,2]，以及单位缩放不变、第二阶段松弛、真实不可行与求解器状态验证。
+- 测试含闭式三DMU：[x,y]=[1,1],[2,1],[1,2]，基线θ=[.5,.25,1]；统一移除C后θ=[1,.5,2]，以及单位缩放不变、第二阶段松弛、真实不可行与求解器状态验证。`backend/tests`另有分片重放、断点续算、失败范围、乱序发布、复核拦截、旧代登记与假设迁移用例（`python -m pytest tests`）。
 
 ## 页面、实体与共享组件
 
-六页：研究总览、同期样本、效率求解、参照与敏感性、改进假设、评议留痕。五核心实体BenchmarkSet、Venue、PeriodObservation、EfficiencyRun、ImprovementCase各有model/schema/service/controller/route/前端API/store/页面链路。
+六页：研究总览、同期样本、效率求解、参照与敏感性、改进假设、评议留痕。五核心实体BenchmarkSet、Venue、PeriodObservation、EfficiencyRun、ImprovementCase各有model/schema/service/controller/route/前端API/store/页面链路。回算代由RunGeneration/GenerationPart承载，逻辑在`services/dea_pipeline.py`（纯函数、分片、核对）与`services/generation_service.py`（代生命周期、发布、补算、差异、旧代登记）。
 
-共用业务组件BenchmarkSelect、EfficiencyPlot、FrontierSummary、RunTable；通用PageHeading/StatusBadge/ErrorNotice/EmptyState。useTask管理恢复状态，usePolling只刷新运行中研究，createStore使用React原生useSyncExternalStore。
+共用业务组件BenchmarkSelect、EfficiencyPlot、FrontierSummary、RunTable、GenerationPanel；通用PageHeading/StatusBadge/ErrorNotice/EmptyState。useTask管理恢复状态，usePolling只刷新运行中研究，createStore使用React原生useSyncExternalStore。
 
-共享枚举：后端`backend/src/constants/enums.py`的Role/RunStatus/CaseStatus与INPUTS/OUTPUTS；RunStatus用于run_service和worker，CaseStatus用于case_service，角色授权在utils/auth。前端`frontend/src/constants/enums.ts`的roles/statuses/inputKeys/outputKeys/fields用于App、StatusBadge、求解选择和结果展示。
+共享枚举：后端`backend/src/constants/enums.py`的Role/RunStatus/GenerationStatus/GenerationPartStatus/CaseStatus与INPUTS/OUTPUTS；RunStatus用于run_service和worker，GenerationStatus用于generation_service与worker，CaseStatus用于case_service，角色授权在utils/auth。前端`frontend/src/constants/enums.ts`的roles/statuses/inputKeys/outputKeys/fields/stageLabels用于App、StatusBadge、求解选择、结果展示与研究代面板。
 
 ## 技术、环境与目录
 
@@ -80,7 +103,7 @@ min θ
 | frontend | React18.3.1、TypeScript、Vite6.4.6内置esbuild automatic JSX、Nginx1.27 |
 | backend | Python3.11、FastAPI、SQLAlchemy、psycopg3、PyJWT |
 | 算法 | NumPy、SciPy1.17.1/HiGHS两阶段线性规划 |
-| worker | 单Python消费者；DB任务状态为事实源，Redis唤醒并恢复queued/running |
+| worker | 单Python消费者；DB任务状态为事实源，Redis唤醒并恢复queued/running；按最旧活动代推进 |
 | db/redis | PostgreSQL16、Redis7 AOF |
 
 恰好五服务，均有healthcheck；backend等db/redis healthy；worker再等backend初始化；frontend等backend。命名卷包括数据库、Redis、后端/worker共享产物。当前求解结果在DB、CSV实时生成，共享卷保留扩展通道。初始schema由metadata创建，migrations记录v1自然键，未包含生产schema升级工具。

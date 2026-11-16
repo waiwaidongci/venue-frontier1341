@@ -3,3 +3,29 @@
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 .cases-layout.readonly{grid-template-columns:1fr}
+
+/* 研究代 / 回算 */
+.generation-panel{border-top:2px solid var(--brass);margin-top:34px;padding-top:22px}
+.generation-panel .section-heading>span{max-width:520px;text-align:right;line-height:1.8}
+.generation-panel .status{white-space:nowrap}
+.generation-panel td small{margin-top:4px}
+.generation-panel tr.current-generation td{background:oklch(91% .015 118)}
+.generation-panel tr.current-generation td:first-child{box-shadow:inset 3px 0 0 var(--green)}
+.generation-form{display:flex;gap:14px;align-items:flex-end;margin:18px 0 6px;flex-wrap:wrap}
+.generation-form label{flex:1;min-width:240px}
+.generation-form small{font-size:9px;color:var(--rust)}
+.diff-toolbar{display:flex;gap:14px;align-items:flex-end;margin:22px 0 14px;flex-wrap:wrap}
+.diff-toolbar label{flex:1;min-width:170px;max-width:260px}
+.stale-banner{border-left:3px solid var(--brass);background:oklch(91% .02 92);padding:14px 17px;margin:0 0 18px}
+.stale-banner b{font-size:11px;font-weight:500;color:var(--ink)}
+.stale-banner p{font-size:10px;color:var(--muted);line-height:1.9;margin-top:6px}
+.evidence-line{font-size:8px;letter-spacing:.04em;color:var(--muted);margin:-10px 0 16px}
+.migration-chain{border-top:1px solid var(--line);margin-top:16px;padding-top:12px}
+.migration-chain summary{font-size:10px;color:var(--green);cursor:pointer}
+.migration-chain ol{margin:10px 0 0;padding-left:18px;color:var(--muted)}
+.migration-chain li{font-size:9px;line-height:1.8;margin-bottom:9px}
+.migration-chain small{font-size:8px;letter-spacing:.03em}
+.migrate-control{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;justify-content:flex-end}
+.migrate-control select{width:auto;min-width:170px}
+.case-files article>footer{flex-wrap:wrap}
+@media(max-width:767px){.generation-form,.diff-toolbar{flex-direction:column;align-items:stretch}.generation-form label,.diff-toolbar label{max-width:none;min-width:0}.generation-panel .section-heading>span{max-width:170px}}
